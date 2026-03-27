@@ -10,9 +10,7 @@ A real-time paper trading bot that connects to the Binance WebSocket API, applie
 ### 🎬 Quick Preview
 
 <p align="center">
-  <video src="https://raw.githubusercontent.com/AdarshGzz/Paper-Trader/main/intro_muted.mp4" width="100%" autoplay loop muted playsinline>
-    Your browser does not support the video tag.
-  </video>
+  <img src="demo.gif" alt="PaperTrader Demo" width="800" />
 </p>
 
 ---
