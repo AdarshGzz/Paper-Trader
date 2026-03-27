@@ -319,7 +319,9 @@ function App() {
                       </span>
                     </td>
                     <td style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>
-                      {trade.balance_after ? `$${parseFloat(trade.balance_after).toFixed(2)}` : '-'}
+                      {trade.balance_after !== null && trade.balance_after !== undefined 
+                        ? `$${parseFloat(trade.balance_after).toFixed(2)}` 
+                        : '-'}
                     </td>
                   </tr>
                 ))
