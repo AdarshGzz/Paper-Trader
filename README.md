@@ -192,11 +192,21 @@ WebSocket server running on ws://localhost:3001
 
 ### 3. Setup the Frontend
 
+#### Local Development
 ```bash
 cd ../Frontend
 npm install
 npm run dev
 ```
+
+#### Production Deployment (Vercel)
+1. **Framework Preset**: `Vite`
+2. **Root Directory**: `Frontend`
+3. **Build Command**: `npm run build`
+4. **Output Directory**: `dist`
+5. **Environment Variable**: `VITE_BACKEND_URL=wss://paper-trader-1.onrender.com`
+
+Open **http://localhost:5173** (local) or your Vercel URL (production).
 
 Open **http://localhost:5173** in your browser.
 
