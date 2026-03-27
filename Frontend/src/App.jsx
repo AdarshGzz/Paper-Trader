@@ -268,6 +268,72 @@ function App() {
         </div>
 
       </div>
+
+      {/* Full-width Trade History Table */}
+      <div className="glass-card" style={{ marginTop: '1.5rem' }}>
+        <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <History size={18} className="text-muted" />
+          <h3>Detailed Trade History</h3>
+        </div>
+        
+        <div className="trade-table-container">
+          <table className="trade-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Entry</th>
+                <th>Exit</th>
+                <th>Result</th>
+                <th>Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.trades.length > 0 ? (
+                data.trades.map(trade => (
+                  <tr key={trade.id}>
+                    <td className="text-muted">
+                      {new Date(trade.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </td>
+                    <td>
+                      <span style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        fontWeight: 600,
+                        color: trade.type === 'BUY' ? '#00ff88' : '#ff4d4d'
+                      }}>
+                        {trade.type === 'BUY' ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                        {trade.type}
+                      </span>
+                    </td>
+                    <td style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                      ${parseFloat(trade.entry).toFixed(2)}
+                    </td>
+                    <td style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                      {trade.exit ? `$${parseFloat(trade.exit).toFixed(2)}` : '-'}
+                    </td>
+                    <td>
+                      <span className={trade.result === 'WIN' ? 'text-success' : trade.result === 'LOSS' ? 'text-danger' : 'text-muted'} style={{ fontWeight: 500 }}>
+                        {trade.result || 'OPEN'}
+                      </span>
+                    </td>
+                    <td style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>
+                      {trade.balance_after ? `$${parseFloat(trade.balance_after).toFixed(2)}` : '-'}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                    No trades recorded yet. Waiting for signals...
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

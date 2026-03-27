@@ -58,21 +58,24 @@ async function evaluateTrades() {
                 profitChange = trade.amount * PAYOUT;
             }
 
-            // Update trade in DB
-            await sql`
-                UPDATE trades 
-                SET exit = ${exitPrice}, result = ${result}, closed_at = NOW()
-                WHERE id = ${trade.id}
-            `;
-
             // Update balance in app_state
-            await sql`
+            const updatedBalanceResult = await sql`
                 UPDATE app_state 
                 SET value = value + ${profitChange}
                 WHERE key = 'balance'
+                RETURNING value
+            `;
+            
+            const finalBalance = updatedBalanceResult[0]?.value;
+
+            // Update trade in DB
+            await sql`
+                UPDATE trades 
+                SET exit = ${exitPrice}, result = ${result}, balance_after = ${finalBalance}, closed_at = NOW()
+                WHERE id = ${trade.id}
             `;
 
-            logInfo(`Trade ${trade.id} evaluated: ${result}`, { exitPrice, profitChange });
+            logInfo(`Trade ${trade.id} evaluated: ${result}`, { exitPrice, profitChange, finalBalance });
         }
     } catch (err) {
         logError('Error evaluating trades in DB', err);

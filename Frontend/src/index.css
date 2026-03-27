@@ -52,6 +52,7 @@ h1, h2, h3 {
 .text-gradient {
   background: linear-gradient(135deg, #fff 0%, #a5a5a5 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -93,4 +94,34 @@ h1, h2, h3 {
 
 .trade-item:last-child {
   border-bottom: none;
+}
+
+/* Trade Table */
+.trade-table-container {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.trade-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 0.9rem;
+}
+
+.trade-table th {
+  text-align: left;
+  padding: 12px 8px;
+  color: #666;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.trade-table td {
+  padding: 14px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.trade-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
 }

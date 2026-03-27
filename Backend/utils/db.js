@@ -24,10 +24,14 @@ async function initDb() {
         expiry_index INTEGER NOT NULL,
         amount DOUBLE PRECISION NOT NULL,
         result TEXT,
+        balance_after DOUBLE PRECISION,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         closed_at TIMESTAMP
       )
     `;
+
+    // Ensure balance_after column exists (Migration)
+    await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS balance_after DOUBLE PRECISION`;
 
     // Create candles table (optional, for persistent history)
     await sql`
