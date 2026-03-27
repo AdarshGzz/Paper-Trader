@@ -362,6 +362,21 @@ This verifies:
 
 ---
 
+## 🛑 Troubleshooting
+
+### 451 Error (Unexpected server response)
+If you see `WebSocket error Error: Unexpected server response: 451` in your Render logs:
+**Reason**: Binance blocks US-based data center IPs (Render's default region).
+**Fix**: 
+1. Go to Render Dashboard → **Settings** → **Region**.
+2. Change it to **Frankfurt (Germany)** or **Singapore**.
+3. Save and redeploy.
+
+Alternatively, change the `BINANCE_WS_URL` environment variable to use the US-based stream:
+- `wss://stream.binance.us:9443/ws/btcusdt@kline_5m`
+
+---
+
 ## 📝 License
 
 This project is licensed under the ISC License.
