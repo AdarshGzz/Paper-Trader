@@ -1,0 +1,6 @@
+module.exports = {
+  TRADE_AMOUNT: 10,
+  STARTING_BALANCE: 1000,
+  PAYOUT: 0.8,
+  MAX_CANDLES: 100
+};
