@@ -33,6 +33,21 @@ async function initDb() {
     // Ensure balance_after column exists (Migration)
     await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS balance_after DOUBLE PRECISION`;
 
+    // Backfill balance_after for old trades if needed
+    const { PAYOUT } = require('./config');
+    const needsBackfill = await sql`SELECT id FROM trades WHERE result IS NOT NULL AND balance_after IS NULL LIMIT 1`;
+    if (needsBackfill.length > 0) {
+      logInfo('Historical trades detected without balance data. Starting backfill...');
+      const allTrades = await sql`SELECT * FROM trades WHERE result IS NOT NULL ORDER BY closed_at ASC`;
+      let runningBalance = STARTING_BALANCE;
+      for (const t of allTrades) {
+        const profit = t.result === 'WIN' ? (t.amount * PAYOUT) : -t.amount;
+        runningBalance += profit;
+        await sql`UPDATE trades SET balance_after = ${runningBalance} WHERE id = ${t.id}`;
+      }
+      logInfo('Backfill completed.');
+    }
+
     // Create candles table (optional, for persistent history)
     await sql`
       CREATE TABLE IF NOT EXISTS candles (
