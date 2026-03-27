@@ -40,7 +40,13 @@ function App() {
     let reconnectTimer;
 
     function connectWs() {
-      ws = new WebSocket('ws://localhost:3001');
+      // Use environment variable if provided, else fallback to current host or localhost
+      const backendUrl = import.meta.env.VITE_BACKEND_URL;
+      const wsUrl = backendUrl 
+        ? (backendUrl.startsWith('http') ? backendUrl.replace('http', 'ws') : backendUrl)
+        : `ws://${window.location.hostname}:3001`;
+
+      ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         setConnected(true);

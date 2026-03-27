@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const http = require('http');
 const { setBroadcaster } = require('../app');
 const { getStats, getRecentTrades } = require('../services/trade.service');
 const { getCandles } = require('../services/candle.service');
@@ -6,7 +7,19 @@ const { sql } = require('../utils/db');
 const { logInfo, logError } = require('../utils/logger');
 const { PORT } = require('../utils/config');
 
-const wss = new WebSocket.Server({ port: PORT });
+// Create HTTP server for health checks
+const server = http.createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OK');
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+
+// Attach WebSocket server to the HTTP server
+const wss = new WebSocket.Server({ server });
 
 function broadcast(data) {
   const message = JSON.stringify(data);
@@ -58,4 +71,6 @@ wss.on('connection', async (ws) => {
 // Inject broadcaster into app
 setBroadcaster(broadcast);
 
-logInfo(`WebSocket server running on ws://localhost:${PORT}`);
+server.listen(PORT, () => {
+  logInfo(`Server (HTTP + WS) running on port ${PORT}`);
+});
