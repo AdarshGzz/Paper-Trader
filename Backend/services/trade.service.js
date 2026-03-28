@@ -86,6 +86,7 @@ async function getStats() {
     try {
         const trades = await sql`SELECT * FROM trades`;
         const balanceResult = await sql`SELECT value FROM app_state WHERE key = 'balance'`;
+        const { STARTING_BALANCE } = require('../utils/config');
         
         const balance = balanceResult[0]?.value || 0;
         const total = trades.length;
@@ -96,6 +97,7 @@ async function getStats() {
 
         return {
             balance: parseFloat(balance).toFixed(2),
+            initialCapital: parseFloat(STARTING_BALANCE).toFixed(2),
             totalTrades: total,
             wins,
             losses,
@@ -107,7 +109,7 @@ async function getStats() {
     }
 }
 
-async function getRecentTrades(limit = 10) {
+async function getRecentTrades(limit = 5) {
     try {
         const trades = await sql`
             SELECT * FROM trades 
@@ -121,9 +123,36 @@ async function getRecentTrades(limit = 10) {
     }
 }
 
+async function getTradesPaged(page = 1, limit = 10) {
+    try {
+        const offset = (page - 1) * limit;
+        const trades = await sql`
+            SELECT * FROM trades 
+            ORDER BY created_at DESC 
+            LIMIT ${limit} OFFSET ${offset}
+        `;
+        const countResult = await sql`SELECT COUNT(*) FROM trades`;
+        logInfo('Raw count result', { result: countResult[0] });
+        const totalCount = parseInt(countResult[0]?.count || countResult[0]?.count_1 || Object.values(countResult[0])[0] || 0);
+
+        logInfo(`Fetched trades page ${page}`, { count: trades.length, totalCount });
+
+        return {
+            trades,
+            totalCount,
+            page,
+            totalPages: Math.ceil(totalCount / limit)
+        };
+    } catch (err) {
+        logError('Error fetching paged trades from DB', err);
+        return { trades: [], totalCount: 0, page, totalPages: 0 };
+    }
+}
+
 module.exports = {
     createTrade,
     evaluateTrades,
     getStats,
-    getRecentTrades
+    getRecentTrades,
+    getTradesPaged
 };

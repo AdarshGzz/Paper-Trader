@@ -24,23 +24,30 @@ function App() {
   const [data, setData] = useState({
     stats: {
       balance: '1000.00',
+      initialCapital: '1000.00',
       totalTrades: 0,
       wins: 0,
       losses: 0,
       winRate: '0.00'
     },
     candles: [],
-    trades: []
+    recentTrades: [],
+    history: {
+      trades: [],
+      page: 1,
+      totalPages: 1,
+      totalCount: 0
+    }
   });
 
   const [connected, setConnected] = useState(false);
+  const [wsRef, setWsRef] = useState(null);
 
   useEffect(() => {
     let ws;
     let reconnectTimer;
 
     function connectWs() {
-      // Use environment variable if provided, else fallback to current host or localhost
       const backendUrl = import.meta.env.VITE_BACKEND_URL;
       const wsUrl = backendUrl 
         ? (backendUrl.startsWith('http') ? backendUrl.replace('http', 'ws') : backendUrl)
@@ -53,19 +60,40 @@ function App() {
         console.log('Connected to PaperTrader Backend');
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
         try {
-          const message = JSON.parse(event.data);
+          let rawData = event.data;
+          if (rawData instanceof Blob) {
+            rawData = await rawData.text();
+          }
+          const message = JSON.parse(rawData);
+          
+          if (message.type === 'trades_page') {
+            setData(prev => ({
+              ...prev,
+              history: {
+                trades: message.trades || [],
+                page: message.page || 1,
+                totalPages: message.totalPages || 1,
+                totalCount: message.totalCount || 0
+              }
+            }));
+            return;
+          }
+
           setData(prev => ({
             ...prev,
             stats: message.stats || prev.stats,
             candles: message.candles && message.candles.length > 0 ? message.candles : prev.candles,
-            trades: message.recentTrades || prev.trades
+            recentTrades: message.recentTrades || prev.recentTrades,
+            history: message.history || prev.history
           }));
         } catch (err) {
           console.error('Error parsing WS message', err);
         }
       };
+
+      setWsRef(ws);
 
       ws.onclose = () => {
         setConnected(false);
@@ -86,10 +114,30 @@ function App() {
     };
   }, []);
 
+  // Request page on page change
+  useEffect(() => {
+    if (connected && wsRef && wsRef.readyState === WebSocket.OPEN) {
+      wsRef.send(JSON.stringify({ type: 'request_trades_page', page: data.history.page, limit: 10 }));
+    }
+  }, [connected, wsRef, data.history.page]);
+
+  const fetchPage = (newPage) => {
+    if (newPage > 0 && newPage <= data.history.totalPages) {
+      setData(prev => ({
+        ...prev,
+        history: { ...prev.history, page: newPage }
+      }));
+    }
+  };
+
+  useEffect(() => {
+    console.log('History state updated:', data.history.trades.length, 'trades');
+  }, [data.history]);
+
   const lastPrice = data.candles.at(-1)?.close || 0;
 
   return (
-    <div className="app-container">
+    <div className="app-container" style={{scale:".75",marginTop:"-100px"}}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 className="text-gradient">PaperTrader Dashboard</h1>
@@ -114,13 +162,22 @@ function App() {
             <span className="text-muted">Balance</span>
           </div>
           <div className="stat-value text-gradient">${data.stats.balance}</div>
+          <div className="text-muted" style={{ fontSize: '0.8rem', marginTop: '4px' }}>
+            Capital: ${data.stats.initialCapital}
+          </div>
         </div>
         <div className="glass-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Activity size={20} className="text-muted" />
-            <span className="text-muted">Live Price</span>
+            <TrendingUp size={20} className="text-muted" />
+            <span className="text-muted">Net P/L</span>
           </div>
-          <div className="stat-value" style={{ color: '#fff' }}>${lastPrice.toFixed(2)}</div>
+          <div className={`stat-value ${parseFloat(data.stats.balance) >= parseFloat(data.stats.initialCapital) ? 'text-success' : 'text-danger'}`}>
+            {parseFloat(data.stats.balance) >= parseFloat(data.stats.initialCapital) ? '+' : ''}
+            {(parseFloat(data.stats.balance) - parseFloat(data.stats.initialCapital)).toFixed(2)}
+          </div>
+          <div className="text-muted" style={{ fontSize: '0.8rem', marginTop: '4px' }}>
+            {(((parseFloat(data.stats.balance) - parseFloat(data.stats.initialCapital)) / parseFloat(data.stats.initialCapital)) * 100).toFixed(2)}% Return
+          </div>
         </div>
         <div className="glass-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -128,6 +185,9 @@ function App() {
             <span className="text-muted">Win Rate</span>
           </div>
           <div className="stat-value text-success">{data.stats.winRate}%</div>
+          <div className="text-muted" style={{ fontSize: '0.8rem', marginTop: '4px' }}>
+            {data.stats.wins}W / {data.stats.losses}L
+          </div>
         </div>
         <div className="glass-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -135,6 +195,9 @@ function App() {
             <span className="text-muted">Total Trades</span>
           </div>
           <div className="stat-value">{data.stats.totalTrades}</div>
+          <div className="text-muted" style={{ fontSize: '0.8rem', marginTop: '4px' }}>
+             Across all time
+          </div>
         </div>
       </div>
 
@@ -191,9 +254,9 @@ function App() {
           </div>
 
           {/* Trades Section */}
-          {data.trades.length > 0 && (
+          {data.recentTrades.length > 0 && (
             <div className="trade-list">
-              {data.trades.map(trade => (
+              {data.recentTrades.slice(0, 5).map(trade => (
                 <div key={trade.id} className="trade-item">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -214,7 +277,7 @@ function App() {
           )}
 
           {/* Signal readiness indicator */}
-          {data.trades.length === 0 && (
+          {data.recentTrades.length === 0 && (
             <div style={{ padding: '10px 0' }}>
               <div style={{ marginBottom: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
@@ -269,11 +332,19 @@ function App() {
 
       </div>
 
-      {/* Full-width Trade History Table */}
       <div className="glass-card" style={{ marginTop: '1.5rem' }}>
-        <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <History size={18} className="text-muted" />
-          <h3>Detailed Trade History</h3>
+        <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <History size={18} className="text-muted" />
+            <h3>Detailed Trade History</h3>
+          </div>
+          {data.history.trades.length > 0 && (
+            <div className="text-muted" style={{ fontSize: '0.9rem', fontWeight: 500 }}>
+              {new Date(data.history.trades[0].created_at).toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })}
+              {new Date(data.history.trades[0].created_at).toDateString() !== new Date(data.history.trades.at(-1).created_at).toDateString() && 
+                ` - ${new Date(data.history.trades.at(-1).created_at).toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' })}`}
+            </div>
+          )}
         </div>
         
         <div className="trade-table-container">
@@ -289,10 +360,10 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {data.trades.length > 0 ? (
-                data.trades.map(trade => (
+              {data.history.trades.length > 0 ? (
+                data.history.trades.map(trade => (
                   <tr key={trade.id}>
-                    <td className="text-muted">
+                    <td className="text-muted" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
                       {new Date(trade.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </td>
                     <td>
@@ -334,6 +405,52 @@ function App() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination Controls */}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginTop: '20px',
+          padding: '10px 0',
+          borderTop: '1px solid rgba(255,255,255,0.05)'
+        }}>
+          <div className="text-muted" style={{ fontSize: '0.9rem' }}>
+            Showing page {data.history.page} of {data.history.totalPages} ({data.history.totalCount} total trades)
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button 
+              onClick={() => fetchPage(data.history.page - 1)}
+              disabled={data.history.page === 1}
+              style={{
+                padding: '6px 16px',
+                borderRadius: '6px',
+                border: '1px solid #333',
+                backgroundColor: data.history.page === 1 ? 'transparent' : 'rgba(255,255,255,0.05)',
+                color: data.history.page === 1 ? '#444' : '#fff',
+                cursor: data.history.page === 1 ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              Previous
+            </button>
+            <button 
+              onClick={() => fetchPage(data.history.page + 1)}
+              disabled={data.history.page === data.history.totalPages}
+              style={{
+                padding: '6px 16px',
+                borderRadius: '6px',
+                border: '1px solid #333',
+                backgroundColor: data.history.page === data.history.totalPages ? 'transparent' : 'rgba(255,255,255,0.05)',
+                color: data.history.page === data.history.totalPages ? '#444' : '#fff',
+                cursor: data.history.page === data.history.totalPages ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
     </div>
