@@ -20,8 +20,13 @@ async function initDb() {
         type TEXT NOT NULL,
         entry DOUBLE PRECISION NOT NULL,
         exit DOUBLE PRECISION,
-        entry_index INTEGER NOT NULL,
-        expiry_index INTEGER NOT NULL,
+        entry_index INTEGER,
+        expiry_index INTEGER,
+        entry_time BIGINT,
+        expiry_time BIGINT,
+        sl DOUBLE PRECISION,
+        tp DOUBLE PRECISION,
+        quantity DOUBLE PRECISION,
         amount DOUBLE PRECISION NOT NULL,
         result TEXT,
         balance_after DOUBLE PRECISION,
@@ -29,6 +34,15 @@ async function initDb() {
         closed_at TIMESTAMP
       )
     `;
+
+    // Migration to ensure new columns exist
+    await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS entry_time BIGINT`;
+    await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS expiry_time BIGINT`;
+    await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS sl DOUBLE PRECISION`;
+    await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS tp DOUBLE PRECISION`;
+    await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS quantity DOUBLE PRECISION`;
+    await sql`ALTER TABLE trades ALTER COLUMN entry_index DROP NOT NULL`;
+    await sql`ALTER TABLE trades ALTER COLUMN expiry_index DROP NOT NULL`;
 
     // Ensure balance_after column exists (Migration)
     await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS balance_after DOUBLE PRECISION`;
@@ -68,10 +82,18 @@ async function initDb() {
       )
     `;
 
-    // Initialize balance if not exists
-    const balanceExists = await sql`SELECT * FROM app_state WHERE key = 'balance'`;
-    if (balanceExists.length === 0) {
+    // Initialize balance and daily PnL if not exists
+    const stateExists = await sql`SELECT key FROM app_state WHERE key IN ('balance', 'daily_pnl', 'last_pnl_reset')`;
+    const keys = stateExists.map(s => s.key);
+    
+    if (!keys.includes('balance')) {
       await sql`INSERT INTO app_state (key, value) VALUES ('balance', ${STARTING_BALANCE})`;
+    }
+    if (!keys.includes('daily_pnl')) {
+      await sql`INSERT INTO app_state (key, value) VALUES ('daily_pnl', 0)`;
+    }
+    if (!keys.includes('last_pnl_reset')) {
+      await sql`INSERT INTO app_state (key, value) VALUES ('last_pnl_reset', ${Date.now()})`;
     }
 
     logInfo('Database initialized successfully');

@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const { addCandle } = require('../services/candle.service');
 const { createCandleModel } = require('../models/candle.model');
 const { logInfo, logError } = require('../utils/logger');
-const { onCandleClose } = require('../app');
+const { onCandleClose, onTick } = require('../app');
 const { BINANCE_WS_URL } = require('../utils/config');
 
 let ws;
@@ -17,23 +17,35 @@ function connect() {
 
   ws.on('message', async (data) => {
     try {
-      const json = JSON.parse(data);
-      if (!json.k) return;
-      
-      const kline = json.k;
+      const msg = JSON.parse(data);
+      const stream = (msg.stream || '').toLowerCase();
+      const payload = msg.data;
 
-      const candle = createCandleModel({
-        open: parseFloat(kline.o),
-        high: parseFloat(kline.h),
-        low: parseFloat(kline.l),
-        close: parseFloat(kline.c),
-        time: kline.t
-      });
+      // Handle Kline Stream (5m)
+      if (stream === 'btcusdt@kline_5m') {
+        const kline = payload.k;
+        const candle = createCandleModel({
+          open: parseFloat(kline.o),
+          high: parseFloat(kline.h),
+          low: parseFloat(kline.l),
+          close: parseFloat(kline.c),
+          time: kline.t
+        });
 
-      // Only act when candle closes
-      if (kline.x) {
-        await addCandle(candle);
-        await onCandleClose(candle);
+        // Only act on logic when candle closes
+        if (kline.x) {
+          await addCandle(candle);
+          await onCandleClose(candle);
+        }
+      }
+
+      // Handle AggTrade Stream (Zero Lag Millisecond Updates)
+      if (stream === 'btcusdt@aggtrade') {
+        onTick({
+          close: parseFloat(payload.p),
+          time: Math.floor(payload.T / (5 * 60 * 1000)) * (5 * 60 * 1000),
+          isTrade: true
+        });
       }
 
     } catch (err) {

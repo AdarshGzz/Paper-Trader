@@ -1,27 +1,81 @@
 const { sql } = require('../utils/db');
 const { getCandles } = require('./candle.service');
 const { createTradeModel } = require('../models/trade.model');
-const { TRADE_AMOUNT, PAYOUT } = require('../utils/config');
 const { logInfo, logError, logTrade } = require('../utils/logger');
+const { 
+  MAX_DAILY_LOSS_LIMIT, 
+  MAX_DAILY_PROFIT_TARGET 
+} = require('../utils/config');
+
+async function getBalance() {
+  const result = await sql`SELECT value FROM app_state WHERE key = 'balance'`;
+  return parseFloat(result[0]?.value || 0);
+}
+
+async function getDailyState() {
+  const pnl = await sql`SELECT value FROM app_state WHERE key = 'daily_pnl'`;
+  const lastReset = await sql`SELECT value FROM app_state WHERE key = 'last_pnl_reset'`;
+  return { 
+    dailyPnl: parseFloat(pnl[0]?.value || 0), 
+    lastReset: Number(lastReset[0]?.value || 0) 
+  };
+}
+
+async function resetDailyPnlIfNeeded() {
+  const { lastReset } = await getDailyState();
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const currentIstDate = new Date(now.getTime() + istOffset).getUTCDate();
+  const lastIstDate = new Date(lastReset + istOffset).getUTCDate();
+
+  if (currentIstDate !== lastIstDate) {
+    logInfo('New IST day detected. Resetting daily PnL stats.');
+    await sql`UPDATE app_state SET value = 0 WHERE key = 'daily_pnl'`;
+    await sql`UPDATE app_state SET value = ${Date.now()} WHERE key = 'last_pnl_reset'`;
+  }
+}
+
+async function isBotActive() {
+  await resetDailyPnlIfNeeded();
+  const { dailyPnl } = await getDailyState();
+  const balance = await getBalance();
+  
+  const pnlPercent = (dailyPnl / balance) * 100;
+
+  if (pnlPercent <= MAX_DAILY_LOSS_LIMIT) {
+    logInfo('Daily loss limit reached. Trading paused.', { pnlPercent });
+    return false;
+  }
+  if (pnlPercent >= MAX_DAILY_PROFIT_TARGET) {
+    logInfo('Daily profit target reached. Trading paused.', { pnlPercent });
+    return false;
+  }
+  return true;
+}
 
 async function createTrade(signal) {
     try {
+        if (!(await isBotActive())) return;
+
         const candles = getCandles();
         const lastCandle = candles.at(-1);
-
         if (!lastCandle) return;
+
+        const balance = await getBalance();
 
         const trade = createTradeModel({
             type: signal,
             entry: lastCandle.close,
-            index: candles.length - 1,
-            amount: TRADE_AMOUNT
+            time: lastCandle.time,
+            low: lastCandle.low,
+            high: lastCandle.high,
+            balance: balance
         });
 
         // Save to DB
         await sql`
-            INSERT INTO trades (id, type, entry, entry_index, expiry_index, amount, created_at)
-            VALUES (${trade.id}, ${trade.type}, ${trade.entry}, ${trade.entryIndex}, ${trade.expiryIndex}, ${trade.amount}, ${trade.createdAt})
+            INSERT INTO trades (id, type, entry, entry_time, sl, tp, quantity, amount, created_at)
+            VALUES (${trade.id}, ${trade.type}, ${trade.entry}, ${trade.entryTime}, ${trade.sl}, ${trade.tp}, ${trade.quantity}, ${trade.amount}, ${trade.createdAt})
         `;
 
         logTrade(trade);
@@ -33,49 +87,62 @@ async function createTrade(signal) {
 
 async function evaluateTrades() {
     try {
+        await resetDailyPnlIfNeeded();
         const candles = getCandles();
-        const currentIndex = candles.length - 1;
         const lastCandle = candles.at(-1);
-
         if (!lastCandle) return;
 
-        // Fetch open trades that have reached expiry
+        // Fetch all open trades
         const openTrades = await sql`
-            SELECT * FROM trades 
-            WHERE result IS NULL AND ${currentIndex} >= expiry_index
+            SELECT * FROM trades WHERE result IS NULL
         `;
 
         for (const trade of openTrades) {
-            const exitPrice = lastCandle.close;
-            let result = "LOSS";
-            let profitChange = -trade.amount;
+            let result = null;
+            let exitPrice = null;
 
-            if (
-                (trade.type === "BUY" && exitPrice > trade.entry) ||
-                (trade.type === "SELL" && exitPrice < trade.entry)
-            ) {
+            if (trade.type === "BUY") {
+              if (lastCandle.low <= trade.sl) {
+                result = "LOSS";
+                exitPrice = trade.sl;
+              } else if (lastCandle.high >= trade.tp) {
                 result = "WIN";
-                profitChange = trade.amount * PAYOUT;
+                exitPrice = trade.tp;
+              }
+            } else {
+              // SELL
+              if (lastCandle.high >= trade.sl) {
+                result = "LOSS";
+                exitPrice = trade.sl;
+              } else if (lastCandle.low <= trade.tp) {
+                result = "WIN";
+                exitPrice = trade.tp;
+              }
             }
 
-            // Update balance in app_state
-            const updatedBalanceResult = await sql`
-                UPDATE app_state 
-                SET value = value + ${profitChange}
-                WHERE key = 'balance'
-                RETURNING value
-            `;
-            
-            const finalBalance = updatedBalanceResult[0]?.value;
+            if (result) {
+              const profitChange = (trade.type === "BUY") 
+                ? (exitPrice - trade.entry) * trade.quantity
+                : (trade.entry - exitPrice) * trade.quantity;
 
-            // Update trade in DB
-            await sql`
-                UPDATE trades 
-                SET exit = ${exitPrice}, result = ${result}, balance_after = ${finalBalance}, closed_at = NOW()
-                WHERE id = ${trade.id}
-            `;
+              // Update balance and daily pnl in app_state
+              const updatedBalanceResult = await sql`
+                  UPDATE app_state SET value = value + ${profitChange} WHERE key = 'balance' RETURNING value
+              `;
+              await sql`
+                  UPDATE app_state SET value = value + ${profitChange} WHERE key = 'daily_pnl'
+              `;
+              
+              const finalBalance = updatedBalanceResult[0]?.value;
 
-            logInfo(`Trade ${trade.id} evaluated: ${result}`, { exitPrice, profitChange, finalBalance });
+              await sql`
+                  UPDATE trades 
+                  SET exit = ${exitPrice}, result = ${result}, balance_after = ${finalBalance}, closed_at = NOW()
+                  WHERE id = ${trade.id}
+              `;
+
+              logInfo(`Trade ${trade.id} closed: ${result}`, { exitPrice, profitChange, finalBalance });
+            }
         }
     } catch (err) {
         logError('Error evaluating trades in DB', err);

@@ -115,6 +115,12 @@ wss.on('connection', async (ws) => {
 // Inject broadcaster into app
 setBroadcaster(broadcast);
 
-server.listen(PORT, () => {
-  logInfo(`Server (HTTP + WS) running on port ${PORT}`);
-});
+function startWsServer() {
+  server.listen(PORT, () => {
+    logInfo(`Server (HTTP + WS) running on port ${PORT}`);
+  });
+}
+
+module.exports = {
+  startWsServer
+};

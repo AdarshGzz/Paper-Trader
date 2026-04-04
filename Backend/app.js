@@ -26,6 +26,18 @@ async function onCandleClose(candle) {
     if (signal) {
       logInfo('Signal generated', { signal });
       await createTrade(signal);
+      
+      // Immediate broadcast of new trade state
+      if (broadcaster) {
+        const stats = await getStats();
+        const recentTrades = await require('./services/trade.service').getRecentTrades();
+        broadcaster({
+          type: 'snapshot',
+          stats,
+          candles,
+          recentTrades
+        });
+      }
     }
 
     // Step 3: Send data to frontend
@@ -33,6 +45,7 @@ async function onCandleClose(candle) {
       const stats = await getStats();
       const recentTrades = await require('./services/trade.service').getRecentTrades();
       broadcaster({
+        type: 'snapshot',
         stats,
         candles,
         recentTrades
@@ -43,7 +56,18 @@ async function onCandleClose(candle) {
   }
 }
 
+// Support real-time price "ticks" between candle closes
+function onTick(candle) {
+  if (broadcaster) {
+    broadcaster({
+      type: 'tick',
+      candle
+    });
+  }
+}
+
 module.exports = {
   onCandleClose,
+  onTick,
   setBroadcaster
 };

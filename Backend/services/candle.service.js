@@ -2,6 +2,38 @@ const store = require('../store/store');
 const { MAX_CANDLES } = require('../utils/config');
 const { sql } = require('../utils/db');
 const { logInfo, logError } = require('../utils/logger');
+const ccxt = require('ccxt');
+
+const binance = new ccxt.binance();
+
+// Sync missing candles from Binance REST API on startup
+async function syncMissingCandles() {
+  try {
+    logInfo('Syncing missing candles from Binance REST API...');
+    
+    // Fetch last 100 klines (OHLCV) for 5m interval
+    const ohlcv = await binance.fetchOHLCV('BTC/USDT', '5m', undefined, 100);
+    
+    let syncedCount = 0;
+    for (const [time, open, high, low, close] of ohlcv) {
+      const candle = {
+        time: Number(time),
+        open: parseFloat(open),
+        high: parseFloat(high),
+        low: parseFloat(low),
+        close: parseFloat(close)
+      };
+      
+      // Use the generic addCandle which handles duplication and DB persistence
+      await addCandle(candle);
+      syncedCount++;
+    }
+    
+    logInfo(`Successfully synced ${syncedCount} candles from Binance REST API.`);
+  } catch (err) {
+    logError('Error syncing candles from Binance REST API', err);
+  }
+}
 
 // Load historical candles from DB into memory on startup
 async function loadCandlesFromDb() {
@@ -27,10 +59,15 @@ async function loadCandlesFromDb() {
 }
 
 async function addCandle(candle) {
+  // Prevent duplicates in memory
+  if (store.candles.some(c => c.time === candle.time)) {
+    return;
+  }
+
   store.candles.push(candle);
 
   // When buffer hits limit, drop 20 oldest candles at once
-  if (store.candles.length > MAX_CANDLES) {
+  if (store.candles.length > Math.max(MAX_CANDLES, 100)) {
     store.candles.splice(0, 20);
   }
 
@@ -67,5 +104,6 @@ module.exports = {
   getCandles,
   getLastCandle,
   getPrevCandle,
-  loadCandlesFromDb
+  loadCandlesFromDb,
+  syncMissingCandles
 };
