@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -96,6 +96,12 @@ function App() {
   const [showStrategy, setShowStrategy] = useState(false);
   const [connected, setConnected] = useState(false);
   const [wsRef, setWsRef] = useState(null);
+  const candlesRef = useRef(data.candles);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    candlesRef.current = data.candles;
+  }, [data.candles]);
 
   useEffect(() => {
     let ws;
@@ -123,11 +129,10 @@ function App() {
           const message = JSON.parse(rawData);
           
           if (message.type === 'tick') {
-            const tick = message.candle;
             
             setLiveCandle(prev => {
               const tick = message.candle;
-              const lastCandle = data.candles.at(-1);
+              const lastCandle = candlesRef.current.at(-1);
               let updated;
 
               // If it's a trade tick, we need to merge it with existing data
@@ -245,7 +250,7 @@ function App() {
     console.log('History state updated:', data.history.trades.length, 'trades');
   }, [data.history]);
 
-  const lastPrice = data.candles.at(-1)?.close || 0;
+  const lastPrice = liveCandle?.close || data.candles.at(-1)?.close || 0;
   const activeTrade = data.recentTrades.find(t => t.result === null);
   const pnl = activeTrade 
     ? (activeTrade.type === 'BUY' ? (lastPrice - activeTrade.entry) : (activeTrade.entry - lastPrice)) * activeTrade.quantity

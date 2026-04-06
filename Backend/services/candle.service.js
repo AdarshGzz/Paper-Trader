@@ -4,15 +4,32 @@ const { sql } = require('../utils/db');
 const { logInfo, logError } = require('../utils/logger');
 const ccxt = require('ccxt');
 
-const binance = new ccxt.binance();
+// Single binance instance with timeout to prevent hangs
+const binance = new ccxt.binance({
+  timeout: 20000, // 20s timeout
+  enableRateLimit: true
+});
 
-// Sync missing candles from Binance REST API on startup
+// Sync missing candles from Binance REST API in background
 async function syncMissingCandles() {
   try {
-    logInfo('Syncing missing candles from Binance REST API...');
+    logInfo('Starting background data sync for historical candles...');
     
-    // Fetch last 100 klines (OHLCV) for 5m interval
-    const ohlcv = await binance.fetchOHLCV('BTC/USDT', '5m', undefined, 100);
+    // Fetch last 500 klines (OHLCV) for 5m interval (covers ~41 hours)
+    // Wrap in retry to handle temporary network blips
+    let ohlcv = [];
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        ohlcv = await binance.fetchOHLCV('BTC/USDT', '5m', undefined, 500);
+        break;
+      } catch (err) {
+        retries--;
+        logError(`Failed to fetch history from Binance (${retries} retries left)`, err.message);
+        if (retries === 0) throw err;
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
     
     let syncedCount = 0;
     for (const [time, open, high, low, close] of ohlcv) {
@@ -24,14 +41,17 @@ async function syncMissingCandles() {
         close: parseFloat(close)
       };
       
-      // Use the generic addCandle which handles duplication and DB persistence
       await addCandle(candle);
       syncedCount++;
+      
+      if (syncedCount % 50 === 0) {
+        logInfo(`Sync progress: ${syncedCount}/${ohlcv.length} candles...`);
+      }
     }
     
     logInfo(`Successfully synced ${syncedCount} candles from Binance REST API.`);
   } catch (err) {
-    logError('Error syncing candles from Binance REST API', err);
+    logError('Critical error during background candle sync', err.message);
   }
 }
 
@@ -66,9 +86,9 @@ async function addCandle(candle) {
 
   store.candles.push(candle);
 
-  // When buffer hits limit, drop 20 oldest candles at once
-  if (store.candles.length > Math.max(MAX_CANDLES, 100)) {
-    store.candles.splice(0, 20);
+  // When buffer hits limit, keep recent ones
+  if (store.candles.length > MAX_CANDLES) {
+    store.candles = store.candles.slice(-MAX_CANDLES);
   }
 
   // Persist to DB
@@ -83,7 +103,7 @@ async function addCandle(candle) {
         close = EXCLUDED.close
     `;
   } catch (err) {
-    logError('Error saving candle to DB', err);
+    logError('Error saving candle to DB', err.message);
   }
 }
 
